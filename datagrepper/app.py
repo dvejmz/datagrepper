@@ -20,7 +20,6 @@ import flask
 import codecs
 import docutils
 import docutils.examples
-import dogpile.cache
 import jinja2
 import markupsafe
 import os
@@ -61,12 +60,6 @@ fedmsg.meta.make_processors(**fedmsg_config)
 # Initialize a datanommer session.
 dm.init(fedmsg_config['datanommer.sqlalchemy.url'])
 
-# Initialize the cache.
-cache = dogpile.cache.make_region().configure(
-    app.config.get('DATAGREPPER_CACHE_BACKEND', 'dogpile.cache.memory'),
-    **app.config.get('DATAGREPPER_CACHE_KWARGS', {})
-)
-
 import datagrepper.widgets
 
 
@@ -82,6 +75,9 @@ def inject_variable():
     if 'fedmenu_url' in fedmsg_config:
         extras['fedmenu_url'] = fedmsg_config['fedmenu_url']
         extras['fedmenu_data_url'] = fedmsg_config['fedmenu_data_url']
+
+    if 'websocket_address' in fedmsg_config:
+        extras['websocket_address'] = fedmsg_config['websocket_address']
 
     return extras
 
@@ -196,6 +192,11 @@ def charts():
 @app.route('/widget')
 def widget():
     return flask.render_template('index.html', docs=load_docs(flask.request))
+
+
+@app.route('/raw', methods=['POST'])
+def post_raw():
+    flask.abort(405)
 
 
 # Instant requests
@@ -406,6 +407,12 @@ def raw():
         )
 
 
+@app.route('/id', methods=['POST'])
+def post_id():
+    flask.abort(405)
+
+
+# Instant requests
 # Get a message by msg_id
 @app.route('/id/')
 @app.route('/id')
@@ -485,6 +492,13 @@ def msg_id():
     else:
         flask.abort(404)
 
+
+@app.route('/charts/<chart_type', methods=['POST'])
+def post_charts(chart_type):
+    flask.abort(405)
+
+
+# Instant requests
 @app.route('/charts/<chart_type>/')
 @app.route('/charts/<chart_type>')
 def make_charts(chart_type):
@@ -621,6 +635,11 @@ def make_charts(chart_type):
                 )
                 values.append(count)
             tag = factor and " & ".join(factor) or "events"
+
+            # Truncate things to make charts prettier
+            if tag.startswith('org.fedoraproject.prod.'):
+                tag = tag[len('org.fedoraproject.prod.'):]
+
             chart.add(tag, values)
 
         chart.x_labels = labels
@@ -650,6 +669,12 @@ def daterange(start, stop, steps):
         current += delta
 
 
+@app.route('/messagecount', methods=['POST'])
+def post_messagecount():
+    flask.abort(405)
+
+
+# Instant requests
 @app.route('/messagecount/')
 @app.route('/messagecount')
 def messagecount():
@@ -659,26 +684,23 @@ def messagecount():
     return total
 
 
-@cache.cache_on_arguments(expiration_time=3600)
-def topics_cached():
-    msg = [i.topic for i in dm.Message.query.distinct(dm.Message.topic)]
-    return fedmsg.encoding.dumps(msg)
-
-
-@app.route('/topics/')
-@app.route('/topics')
-def topics():
-    return flask.Response(
-        response=topics_cached(),
-        status=200,
-        mimetype='application/json',
-    )
-
-
 @app.errorhandler(404)
 def not_found(error):
     return flask.Response(
         response=fedmsg.encoding.dumps({'error': 'not_found'}),
         status=404,
+        mimetype='application/json',
+    )
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    return flask.Response(
+        response=fedmsg.encoding.dumps({
+            'error': 'internal_error',
+            'detail': str(error),
+            'traceback': traceback.format_exc(),
+        }),
+        status=500,
         mimetype='application/json',
     )

@@ -72,12 +72,26 @@ def inject_variable():
         'grepper_version': get_distribution('datagrepper').version,
     }
 
+    style = {
+        'message_bus_link': 'http://fedmsg.com',
+        'message_bus_shortname': 'fedmsg',
+        'message_bus_longname': 'fedmsg bus',
+        'theme_css_url': 'https://apps.fedoraproject.org/global/fedora-bootstrap-1.0/fedora-bootstrap.min.css',
+        'datagrepper_logo': 'static/datagrepper.png',
+    }
+    for key, default in style.items():
+        extras[key] = fedmsg_config.get(key, default)
+
     if 'fedmenu_url' in fedmsg_config:
         extras['fedmenu_url'] = fedmsg_config['fedmenu_url']
         extras['fedmenu_data_url'] = fedmsg_config['fedmenu_data_url']
 
     if 'websocket_address' in fedmsg_config:
         extras['websocket_address'] = fedmsg_config['websocket_address']
+
+    # Only allow websockets connections to fedoraproject.org, for instance
+    if 'content_security_policy' in fedmsg_config:
+        extras['content_security_policy'] = fedmsg_config['content_security_policy']
 
     return extras
 
@@ -126,7 +140,9 @@ def preload_docs(endpoint):
     """ Utility to load an RST file and turn it into fancy HTML. """
 
     here = os.path.dirname(os.path.abspath(__file__))
-    fname = os.path.join(here, 'docs', endpoint + '.rst')
+    default = os.path.join(here, 'docs')
+    directory = app.config.get('DATAGREPPER_DOC_PATH', default)
+    fname = os.path.join(directory, endpoint + '.rst')
     with codecs.open(fname, 'r', 'utf-8') as f:
         rst = f.read()
 
@@ -362,7 +378,7 @@ def raw():
         # convert string into python dictionary
         obj = json.loads(body)
         # extract the messages
-        raw_message_list = obj["raw_messages"]
+        raw_message_list = obj.get("raw_messages", [])
 
         final_message_list = []
 
